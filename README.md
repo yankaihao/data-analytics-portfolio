@@ -25,15 +25,17 @@ $$\bar{Y} = \frac{1}{M-1}\sum_{m=1}^{M-1} e^{-r t_m} S_{t_m}, \quad \mathbb{E}^{
 
 | Estimator Scheme | Option Price | Standard Error (SE) | SE Reduction vs. Plain | Equivalent Sampling Efficiency |
 |---|---|---|---|---|
-| Black-Scholes Closed Form | **11.2505** | — | — | — |
-| Standard Monte Carlo (`plain`) | 11.2415 | 0.04975 | 0.0% | 1.00x |
-| Antithetic Variates (`antithetic`) | 11.2415 | 0.03528 | 29.1% | 1.99x |
-| Control Variate (`control`) | 11.2489 | 0.03382 | 32.0% | 2.16x |
-| **Joint Antithetic + Control (`joint_av_cv`)** | **11.2509** | **0.02685** | **46.0%** | **3.43x** |
+| Black-Scholes Closed Form | **11.2028** | — | — | — |
+| Standard Monte Carlo (`plain`) | 11.1796 | 0.05123 | 0.0% | 1.00x |
+| Antithetic Variates (`antithetic`) | 11.1796 | 0.03713 | 27.5% | 1.90x |
+| Control Variate (`control`) | 11.1851 | 0.03563 | 30.5% | 2.07x |
+| **Joint Antithetic + Control (`joint_av_cv`)** | **11.2045** | **0.02765** | **46.0%** | **3.43x** |
 
 * **Greeks via Central Finite Differences (Common Random Numbers)**:
-  * **Delta ($\Delta$)**: `0.6310` (vs. Black-Scholes exact `0.6316`)
-  * **Vega ($\mathcal{V}$)**: `37.768` (vs. Black-Scholes exact `37.697`)
+  * **Delta ($\Delta$)**: `0.6320` (vs. Black-Scholes exact `0.6320`)
+  * **Vega ($\mathcal{V}$)**: `37.709` (vs. Black-Scholes exact `37.689`)
+
+* All figures above are the direct console output of `python mc_option_pricing.py` with the script's fixed `seed = 2022`; rerunning the script reproduces them exactly.
 
 ---
 
