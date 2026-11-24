@@ -2,6 +2,8 @@
 -- E-Commerce Order Funnel & Multi-Supplier Cost Analytics (SQL)
 -- Author: Kaihao Yan
 --
+-- Synthetic illustrative data inspired by personal catering and e-commerce
+-- experience; not actual business records or evidence of causal effects.
 -- Models unit manufacturing costs across 25 factories, tracks small-batch
 -- replenishment across 180+ orders, verifies a 38.0% gross margin, and
 -- analyzes the inquiry-to-order conversion lift from 9.5% to 11.6% (+22%
@@ -28,7 +30,7 @@ CREATE TABLE weekly_funnel_metrics (
    total_cogs      REAL    NOT NULL
 );
 
--- 2. Populate Anonymized 25-Factory Sourcing Benchmark Data
+-- 2. Populate Synthetic 25-Factory Sourcing Benchmark Data
 INSERT INTO suppliers (supplier_id, factory_name, material_type, quoted_unit_cost) VALUES
 (1,  'Factory 01', 'High-Spend Core Fabric', 32.50),
 (2,  'Factory 02', 'High-Spend Core Fabric', 33.10),

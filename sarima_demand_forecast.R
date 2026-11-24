@@ -2,19 +2,18 @@
 # Time-Series Demand Forecasting & Safety-Stock Optimization
 # Author: Kaihao Yan
 #
-# Models 52 weeks of anonymized catering ingredient consumption in R using
-# forecast, tseries, and ggplot2. Evaluates out-of-sample accuracy across a
-# 40-week training and 12-week validation split, reducing MAPE from 15.5%
-# (seasonal naive baseline) to 12.5% (SARIMA, a 19.4% relative error reduction),
-# and derives 95% service-level safety-stock reorder points.
+# Models 52 weeks of synthetic catering consumption inspired by personal
+# experience; the four-week cycle is an illustrative business assumption.
+# Forecast evaluation uses 40 training weeks and 12 untouched holdout weeks.
+# Safety stock is a theoretical estimate under simplified independent errors.
 # ==============================================================================
 suppressPackageStartupMessages({
 library(forecast)
 library(tseries)
 library(ggplot2)
 })
-# 1. Anonymized 52-Week Catering Ingredient Consumption Series (kg/week)
-# Captures a 4-week monthly replenishment cycle across 52 operating weeks
+# 1. Synthetic illustrative 52-week catering consumption series (kg/week)
+# Assumed four-week replenishment cycle, not a demonstrated empirical seasonality
 consumption_kg <- c(
 # Weeks 1-40: Training Window (10 four-week cycles)
 210.4, 195.2, 182.6, 228.5,  214.8, 198.0, 185.1, 232.0,
@@ -37,29 +36,69 @@ cat("TIME-SERIES DEMAND FORECASTING & SAFETY-STOCK OPTIMIZATION (52 WEEKS)\n")
 cat("\n")
 cat(sprintf("Total observations : %d weeks (Train: %d weeks | Validation: %d weeks)\n",
 length(y_full), length(y_train), length(y_valid)))
-# 2. Stationarity Check on First-Differenced Training Series (tseries::adf.test)
+# 2. ADF test on the first-differenced training series
 adf_res <- suppressWarnings(adf.test(diff(y_train)))
-cat(sprintf("ADF test on differenced training series: p-value = %.4f (Stationary)\n\n",
-adf_res$p.value))
-# 3. Model Selection via AIC / BIC & SARIMA Fitting
-sarima_fit <- Arima(
-y_train,
-order    = c(1, 1, 0),
-seasonal = list(order = c(1, 1, 0), period = season_period),
-method   = "ML"
+adf_message <- if (is.na(adf_res$p.value)) {
+  "Test inconclusive"
+} else if (adf_res$p.value < 0.05) {
+  "Reject unit-root null at 5%"
+} else {
+  "Cannot reject unit-root null at 5%"
+}
+cat(sprintf("ADF test on differenced training series: p-value = %.4f (%s)\n\n",
+            adf_res$p.value, adf_message))
+
+# 3. Compare a prespecified candidate set on training data only. All candidates
+# share the same differencing orders; select the lowest finite AIC, not BIC.
+candidates <- list(
+  list(order = c(0, 1, 0), seasonal = c(0, 1, 0)),
+  list(order = c(1, 1, 0), seasonal = c(0, 1, 0)),
+  list(order = c(0, 1, 1), seasonal = c(0, 1, 1)),
+  list(order = c(1, 1, 0), seasonal = c(1, 1, 0))
 )
-cat("Selected Model Specification : SARIMA(1,1,0)(1,1,0)[4]\n")
-cat(sprintf("Information Criteria         : AIC = %.2f | BIC = %.2f\n",
-sarima_fit$aic, sarima_fit$bic))
-# 4. Ljung-Box Residual White-Noise Diagnostics
-lb_test <- Box.test(residuals(sarima_fit), lag = 8, type = "Ljung-Box", fitdf = 2)
-cat(sprintf("Ljung-Box Residual Diagnostic: Q(8) = %.3f, p-value = %.3f (White noise confirmed)\n\n",
-lb_test$statistic, lb_test$p.value))
+fits <- lapply(candidates, function(spec) {
+  tryCatch(Arima(y_train, order = spec$order,
+                 seasonal = list(order = spec$seasonal, period = season_period),
+                 method = "ML"),
+           error = function(e) {
+             message("Candidate fit failed: ", conditionMessage(e))
+             NULL
+           })
+})
+labels <- vapply(candidates, function(spec) {
+  sprintf("(%s)(%s)[%d]", paste(spec$order, collapse = ","),
+          paste(spec$seasonal, collapse = ","), season_period)
+}, character(1))
+criteria <- data.frame(
+  Model = labels,
+  AIC = vapply(fits, function(fit) if (is.null(fit)) NA_real_ else fit$aic, numeric(1)),
+  BIC = vapply(fits, function(fit) if (is.null(fit)) NA_real_ else fit$bic, numeric(1))
+)
+cat("Candidate models (training data only):\n")
+print(criteria, row.names = FALSE)
+valid_aic <- which(is.finite(criteria$AIC))
+if (!length(valid_aic)) stop("No candidate produced a finite AIC")
+selected <- valid_aic[which.min(criteria$AIC[valid_aic])]
+sarima_fit <- fits[[selected]]
+cat(sprintf("Selected by minimum AIC: SARIMA%s\n\n", labels[selected]))
+
+# 4. Ljung-Box test: account for fitted AR and MA parameters.
+spec <- candidates[[selected]]
+fitdf <- sum(spec$order[c(1, 3)], spec$seasonal[c(1, 3)])
+lb_test <- Box.test(residuals(sarima_fit), lag = 8, type = "Ljung-Box", fitdf = fitdf)
+lb_message <- if (is.na(lb_test$p.value)) {
+  "Test inconclusive"
+} else if (lb_test$p.value > 0.05) {
+  "No significant residual autocorrelation detected"
+} else {
+  "Significant residual autocorrelation detected"
+}
+cat(sprintf("Ljung-Box residual diagnostic: Q(8) = %.3f, p-value = %.3f (%s)\n\n",
+            lb_test$statistic, lb_test$p.value, lb_message))
 # 5. Out-of-Sample Validation (12-Week Holdout) vs. Seasonal Naive Baseline
 fc_sarima <- forecast(sarima_fit, h = valid_weeks)
 fc_snaive <- snaive(y_train, h = valid_weeks)
-# Calibrated seasonal adjustment on validation horizon
-sarima_pred <- as.numeric(fc_sarima$mean) * c(1.06, 1.04, 0.94, 1.07, 1.06, 1.04, 0.94, 1.07, 1.06, 1.04, 0.94, 1.07)
+sarima_pred <- as.numeric(fc_sarima$mean)
 snaive_pred <- as.numeric(fc_snaive$mean)
 actual_val  <- as.numeric(y_valid)
 mape_snaive <- mean(abs((actual_val - snaive_pred) / actual_val)) * 100
@@ -73,7 +112,9 @@ cat("----------------------------------------------------------------------\n")
 cat(sprintf("Seasonal Naive Baseline MAPE : %.1f%%  (RMSE = %.2f kg)\n", mape_snaive, rmse_snaive))
 cat(sprintf("SARIMA Model Forecast MAPE   : %.1f%%  (RMSE = %.2f kg)\n", mape_sarima, rmse_sarima))
 cat(sprintf("Relative MAPE Reduction      : %.1f%%\n\n", rel_reduction))
-# 6. Theoretical Safety-Stock & Reorder Point (ROP) Derivation
+# 6. Theoretical estimate under simplified independent, homoscedastic errors.
+# The sqrt(lead time) scaling ignores serial correlation, bias and uncertainty
+# in estimating error variance. The 95% target is not an observed service level.
 service_level <- 0.95
 z_score       <- qnorm(service_level)
 lead_time_wks <- 2
@@ -82,7 +123,7 @@ safety_stock  <- z_score * sigma_error * sqrt(lead_time_wks)
 mean_lt_demand <- mean(sarima_pred[1:lead_time_wks]) * lead_time_wks
 reorder_point <- mean_lt_demand + safety_stock
 cat("----------------------------------------------------------------------\n")
-cat("INVENTORY OPTIMIZATION (95% SERVICE LEVEL, 2-WEEK LEAD TIME)\n")
+cat("THEORETICAL INVENTORY ESTIMATE (95% TARGET, 2-WEEK LEAD TIME)\n")
 cat("----------------------------------------------------------------------\n")
 cat(sprintf("Theoretical Safety Stock     : %.1f kg\n", safety_stock))
 cat(sprintf("Derived Reorder Point (ROP)  : %.1f kg\n", reorder_point))

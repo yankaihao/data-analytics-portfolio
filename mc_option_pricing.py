@@ -5,15 +5,13 @@ Author: Kaihao Yan
 Simulates 100,000 geometric Brownian motion (GBM) asset-price trajectories
 to price European call and put options. Benchmarks numerical convergence
 against closed-form Black-Scholes solutions, applies antithetic and control
-variates jointly (achieving a 46.0% standard error reduction / 3.4x sampling
-efficiency gain), and estimates Delta and Vega via central finite differences.
+variates jointly, and estimates Delta and Vega via central finite differences.
 """
 
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 from scipy.stats import norm
-import matplotlib.pyplot as plt
 
 
 @dataclass(frozen=True)
@@ -66,7 +64,17 @@ def simulate_gbm_trajectories(
      3. control:      Pre-maturity trajectory-average martingale control variate
      4. joint_av_cv:  Antithetic + Control Variates applied jointly
    """
-   rng = np.random.default_rng(seed)
+   if n_paths < 4 or n_paths % 2:
+       raise ValueError("n_paths must be an even integer of at least 4")
+   if market.steps < 2:
+       raise ValueError("steps must be at least 2 for the pre-maturity control")
+   if option_type not in ("call", "put"):
+       raise ValueError("option_type must be 'call' or 'put'")
+   # Separate independent streams; deterministic seeds also preserve common random
+   # numbers across bumped valuations for finite-difference Greeks.
+   plain_seed, paired_seed = np.random.SeedSequence(seed).spawn(2)
+   plain_rng = np.random.default_rng(plain_seed)
+   rng = np.random.default_rng(paired_seed)
    n_pairs = n_paths // 2
    dt = market.maturity / market.steps
    time_grid = np.linspace(dt, market.maturity, market.steps)
@@ -100,8 +108,13 @@ def simulate_gbm_trajectories(
    cv_pos = disc_paths_pos[:, :-1].mean(axis=1)
    cv_neg = disc_paths_neg[:, :-1].mean(axis=1)
 
-   # 1. Standard Monte Carlo (100,000 paths)
-   plain_sample = np.concatenate([payoff_pos, payoff_neg])
+   # 1. Independent standard Monte Carlo paths, also used for control-only.
+   z_plain = plain_rng.standard_normal((n_paths, market.steps))
+   paths_plain = market.spot * np.exp(np.cumsum(drift + diffusion * z_plain, axis=1))
+   if option_type == "call":
+       plain_sample = disc_T * np.maximum(paths_plain[:, -1] - market.strike, 0.0)
+   else:
+       plain_sample = disc_T * np.maximum(market.strike - paths_plain[:, -1], 0.0)
    se_plain = float(plain_sample.std(ddof=1) / np.sqrt(n_paths))
 
    # 2. Antithetic Variates
@@ -109,7 +122,7 @@ def simulate_gbm_trajectories(
    se_anti = float(anti_sample.std(ddof=1) / np.sqrt(n_pairs))
 
    # 3. Control Variate Only
-   cv_all = np.concatenate([cv_pos, cv_neg])
+   cv_all = (paths_plain * disc_factors)[:, :-1].mean(axis=1)
    beta_cv = float(np.cov(plain_sample, cv_all, ddof=1)[0, 1] / np.var(cv_all, ddof=1))
    control_sample = plain_sample - beta_cv * (cv_all - market.spot)
    se_control = float(control_sample.std(ddof=1) / np.sqrt(n_paths))
@@ -185,6 +198,17 @@ def main() -> None:
            f"{scheme:<20} {metrics['price']:>10.4f} {metrics['stderr']:>12.5f} "
            f"{metrics['se_reduction_pct']:>14.1f}% {metrics['efficiency_gain']:>11.2f}x"
        )
+
+   print("\nCONVERGENCE AGAINST BLACK-SCHOLES (CALL)")
+   print(f"{'Paths':>10} {'Plain price':>12} {'Plain SE':>10} {'Plain |error|':>14} "
+         f"{'Joint price':>12} {'Joint SE':>10} {'Joint |error|':>14}")
+   for count in (1_000, 10_000, 50_000, 100_000):
+       run = simulate_gbm_trajectories(market, n_paths=count, seed=seed)
+       plain, joint = run["plain"], run["joint_av_cv"]
+       exact = market.exact_price("call")
+       print(f"{count:>10} {plain['price']:>12.4f} {plain['stderr']:>10.5f} "
+             f"{abs(plain['price'] - exact):>14.4f} {joint['price']:>12.4f} "
+             f"{joint['stderr']:>10.5f} {abs(joint['price'] - exact):>14.4f}")
 
    greeks = estimate_greeks_finite_diff(market, n_paths=n_paths, seed=seed, option_type="call")
    print("\n" + "=" * 74)
