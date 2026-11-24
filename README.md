@@ -48,9 +48,31 @@ Central finite differences reuse common random numbers for bumped valuations: ca
 
 The synthetic series has 52 weekly observations. The first 40 weeks are used for training and the last 12 for validation; frequency 4 represents an **assumed** four-week cycle, giving ten training cycles. Four prespecified SARIMA candidates with common differencing orders are fitted on training data; the script prints AIC and BIC and selects the lowest finite **AIC**. It reports ADF and Ljung–Box p-values with conditional interpretations. Neither test proves stationarity or white noise.
 
-Forecasts are the unadjusted outputs of the selected model, compared with a seasonal-naive baseline on the holdout. The previous README's SARIMA MAPE/RMSE and residual p-value are not retained: they referred to an earlier model and adjusted forecasts and cannot establish the new results. Run the R script to obtain the selected model, diagnostics and current validation metrics. For the embedded series, the seasonal-naive baseline has MAPE approximately **15.6%** and RMSE **41.35 kg**.
+### Example run: synthetic data
 
-The safety stock and reorder point are **theoretical estimates under a simplified independent, homoscedastic forecast-error assumption**, with a two-week lead time and a 95% normal-quantile target. The formula scales weekly error SD by the square root of lead time; it ignores possible serial correlation, forecast bias and parameter uncertainty. A 95% target is not evidence that a 95% service level was achieved.
+The following results are from a user-supplied R run of `sarima_demand_forecast.R`. Model selection and diagnostics use the 40-week training set only. Results may vary with R and package versions.
+
+| Candidate SARIMA | AIC | BIC |
+|---|---:|---:|
+| (0,1,0)(0,1,0)[4] | 178.7053 | 180.2606 |
+| (1,1,0)(0,1,0)[4] | 179.2693 | 182.3799 |
+| **(0,1,1)(0,1,1)[4]** | **163.3689** | **168.0349** |
+| (1,1,0)(1,1,0)[4] | 170.7279 | 175.3940 |
+
+The selected model is **SARIMA(0,1,1)(0,1,1)[4]**, based on minimum AIC among these candidates. The ADF test on the first-differenced training series gave **p = 0.1157**, so the unit-root null was not rejected at 5%. The selected model's Ljung–Box test gave **Q(8) = 4.369, p = 0.627**: no significant residual autocorrelation was detected at 5%, which does not prove white noise.
+
+Unadjusted forecasts were evaluated on the 12-week holdout:
+
+| Model | MAPE | RMSE |
+|---|---:|---:|
+| Seasonal naive | 15.6% | 41.35 kg |
+| Selected SARIMA | 15.1% | 37.89 kg |
+
+The relative MAPE reduction is **3.7%**, calculated from unrounded values. This is one holdout on synthetic data, not a demonstrated real-world improvement.
+
+### Illustrative safety-stock calculation
+
+The same run produced a theoretical safety stock of **77.0 kg** and reorder point (ROP) of **537.9 kg**. These are **theoretical estimates for a synthetic example under simplified independent, homoscedastic forecast-error assumptions**, with a two-week lead time and a 95% normal-quantile target. The formula scales weekly error SD by the square root of lead time; it ignores possible serial correlation, forecast bias and parameter uncertainty. The error SD is calculated from validation actuals, so this is a retrospective illustration, not a reorder decision available before the holdout period. A 95% target is not evidence that a 95% service level was achieved.
 
 ## 3. E-commerce and supplier SQL examples
 
